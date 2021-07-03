@@ -14,8 +14,9 @@ TFT_eSPI tft;
 #define SYM_SLASH 47
 #define SYM_EQ 48
 
-#define SYM_DOT 49
-#define SYM_QUESTION 50
+#define SYM_COMMA 49
+#define SYM_DOT 50
+#define SYM_QUESTION 51
 
 static unsigned char mfont[][9] = {
   [0] = {0x00, 0x1c, 0x36, 0x36, 0x36, 0x36, 0x36, 0x1c},
@@ -67,6 +68,7 @@ static unsigned char mfont[][9] = {
   [SYM_PROD] =     {0x0},  
   [SYM_SLASH] =    {0x00, 0x04, 0x04, 0x0c, 0x08, 0x18, 0x10, 0x10},
   [SYM_EQ] =       {0x00, 0x00, 0x00, 0x1e, 0x00, 0x1e, 0x00, 0x00},
+  [SYM_COMMA] =    {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x0c, 0x08 }, /* , */
   [SYM_DOT] =      {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x0c}, /* . */
   [SYM_QUESTION] = {0x00, 0x3c, 0x06, 0x0c, 0x18, 0x18, 0x00, 0x18}, /* ? */
 };
@@ -98,6 +100,8 @@ static void _raw_draw_text(int x, int y, int scale, int erase, int eraseColor, c
       c = str[i] - '0';
     } else if (str[i] >= 'A' && str[i] <= 'Z') {
       c = str[i] - 'A' + 10;
+    } else if (str[i] >= 'a' && str[i] <= 'z') {
+      c = str[i] - 'a' + 10;
     } else {
       switch (str[i]) {
         case '.':
@@ -126,6 +130,9 @@ static void _raw_draw_text(int x, int y, int scale, int erase, int eraseColor, c
           break;
         case '=':
           c = SYM_EQ;
+          break;
+        case ',':
+          c = SYM_COMMA;
           break;
         default:
           c = str[i];  
@@ -172,9 +179,9 @@ static void redraw()
   */
   char buf[21];
 
-  sprintf(buf, "IP: %d.%d.%d.%d  ", 0xff & (ip >> 24), 0xff & (ip >> 16), 0xff & (ip >> 8), 0xff & ip);
+  sprintf(buf, "IP: %3d.%3d.%3d.%3d  ", 0xff & (ip >> 24), 0xff & (ip >> 16), 0xff & (ip >> 8), 0xff & ip);
   drawText(4, 0, buf, 1);
-  sprintf(buf, "GW: %d.%d.%d.%d  ", 0xff & (peer_ip >> 24), 0xff & (peer_ip >> 16), 0xff & (peer_ip >> 8), 0xff & peer_ip);
+  sprintf(buf, "GW: %3d.%3d.%3d.%3d  ", 0xff & (peer_ip >> 24), 0xff & (peer_ip >> 16), 0xff & (peer_ip >> 8), 0xff & peer_ip);
   drawText(5, 0, buf, 1);
 }
 
@@ -207,16 +214,11 @@ void setup() {
   drawText(2, 0, "NOPQRSTUVWXYZ", 1);
   drawText(3, 0, "+-*/=@:", 1);
   char buf[21];
-  sprintf(buf, "IP: %d.%d.%d.%d", 0xff & (ip >> 24), 0xff & (ip >> 16), 0xff & (ip >> 8), 0xff & ip);
+  sprintf(buf, "IP: %3d.%3d.%3d.%3d", 0xff & (ip >> 24), 0xff & (ip >> 16), 0xff & (ip >> 8), 0xff & ip);
   drawText(4, 0, buf, 0);
-  sprintf(buf, "GW: %d.%d.%d.%d", 0xff & (peer_ip >> 24), 0xff & (peer_ip >> 16), 0xff & (peer_ip >> 8), 0xff & peer_ip);
+  sprintf(buf, "GW: %3d.%3d.%3d.%3d", 0xff & (peer_ip >> 24), 0xff & (peer_ip >> 16), 0xff & (peer_ip >> 8), 0xff & peer_ip);
   drawText(5, 0, buf, 0);
 }
-
-static int lastUp;
-static int lastDown;
-static long upMillis;
-static long downMillis;
 
 struct button {
   int last_state;
@@ -228,6 +230,10 @@ static struct button btn_down;
 static struct button btn_left;
 static struct button btn_right;
 static struct button btn_prs;
+
+static struct button btn_a;
+static struct button btn_b;
+static struct button btn_c;
 
 void loop() {
   /*
@@ -252,14 +258,10 @@ void loop() {
   }
   // Serial.println("c="+c);
   */
-  int up;
-  int down;
-  int left;
-  int right;
-  int prs;
+  int st;
 
-  up = digitalRead(WIO_5S_UP);
-  if ((btn_up.last_state != LOW || millis() - btn_up.last_millis > repeat_delay) && up == LOW) {
+  st = digitalRead(WIO_5S_UP);
+  if ((btn_up.last_state != LOW || millis() - btn_up.last_millis > repeat_delay) && st == LOW) {
     if (ip_mode) {
       ip += ip_mode;
     } else if (peer_mode) {
@@ -268,10 +270,10 @@ void loop() {
     redraw();
     btn_up.last_millis = millis();
   }
-  btn_up.last_state = up;
+  btn_up.last_state = st;
 
-  down = digitalRead(WIO_5S_DOWN);
-  if ((btn_down.last_state != LOW || millis() - btn_down.last_millis > repeat_delay) && down == LOW) {
+  st = digitalRead(WIO_5S_DOWN);
+  if ((btn_down.last_state != LOW || millis() - btn_down.last_millis > repeat_delay) && st == LOW) {
     if (ip_mode) {
       ip -= 1;
     }
@@ -281,10 +283,10 @@ void loop() {
     redraw();
     btn_down.last_millis = millis();
   }
-  btn_down.last_state = down;
+  btn_down.last_state = st;
 
-  left = digitalRead(WIO_5S_LEFT);
-  if ((btn_left.last_state != LOW /*|| millis() - btn_left.last_millis > repeat_delay*/) && left == LOW) {
+  st = digitalRead(WIO_5S_LEFT);
+  if ((btn_left.last_state != LOW /*|| millis() - btn_left.last_millis > repeat_delay*/) && st == LOW) {
     if (ip_mode > 0 && ip_mode < 16777216) {
       ip_mode <<= 8;
     }
@@ -298,10 +300,10 @@ void loop() {
     redraw();
     btn_left.last_millis = millis();
   }
-  btn_left.last_state = left;
+  btn_left.last_state = st;
 
-  right = digitalRead(WIO_5S_RIGHT);
-  if ((btn_right.last_state != LOW /*|| millis() - btn_right.last_millis > repeat_delay*/) && right == LOW) {
+  st = digitalRead(WIO_5S_RIGHT);
+  if ((btn_right.last_state != LOW /*|| millis() - btn_right.last_millis > repeat_delay*/) && st == LOW) {
     if (ip_mode > 1) {
       ip_mode >>= 8;
     }
@@ -315,14 +317,51 @@ void loop() {
     redraw();
     btn_right.last_millis = millis();
   }
-  btn_right.last_state = right;
+  btn_right.last_state = st;
 
-  prs = digitalRead(WIO_5S_PRESS);
-  if ((btn_prs.last_state != LOW || millis() - btn_prs.last_millis > repeat_delay) && prs == LOW) {
+  st = digitalRead(WIO_5S_PRESS);
+  if ((btn_prs.last_state != LOW || millis() - btn_prs.last_millis > repeat_delay) && st == LOW) {
 
     redraw();
     btn_prs.last_millis = millis();
   }
-  btn_prs.last_state = prs;
+  btn_prs.last_state = st;
+
+  st = digitalRead(WIO_KEY_A);
+  if ((btn_a.last_state != LOW || millis() - btn_a.last_millis > repeat_delay) && st == LOW) {
+    // 
+    btn_a.last_millis = millis();
+  }
+  btn_a.last_state = st;
+
+  st = digitalRead(WIO_KEY_B);
+  if ((btn_b.last_state != LOW || millis() - btn_b.last_millis > repeat_delay) && st == LOW) {
+    // 
+    btn_b.last_millis = millis();
+  }
+  btn_b.last_state = st;
+
+  st = digitalRead(WIO_KEY_C);
+  if ((btn_c.last_state != LOW || millis() - btn_c.last_millis > repeat_delay) && st == LOW) {
+    // 
+    btn_c.last_millis = millis();
+  }
+  btn_c.last_state = st;
+
+  // blink text, period is 1024 milis
+  {
+    int x = (millis() & 1023);
+    if (x > 512) {
+      x = 1023 - x;
+    }
+  
+    int g = x * ((background_color>>5)&0x3f) / 512 + (511 - x) * 0 / 512;
+  
+    int bak_fgc = foreground_color;
+    foreground_color = (0x1f << 11) | (g << 5) | (g >> 1);
+    drawText(6, 0, "Testing", 0);
+  
+    foreground_color = bak_fgc;
+  }
 
 }
