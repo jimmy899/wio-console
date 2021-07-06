@@ -223,16 +223,24 @@ void setup() {
     // wait until ok signal
   }
 
-  tft.fillScreen(TFT_WHITE);
-
-  font_scale = 4;
-  drawText(3, 1+(10-3)/2, "OK!", 0);
-
-  delay(500);
+  int i;
+  int fs = font_scale;
+  font_scale = 1;
+  for (i = 2; i < 25; i++) {
+    drawText(i, 0, "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-*/=@:.,", 1);
+  }
+  font_scale = fs;
 
   font_scale = 2;
   tft.fillScreen(TFT_WHITE);
 
+  fs = font_scale;
+  font_scale = 4;
+  drawText(3, 1+(10-3)/2, "OK!", 0);
+  font_scale = fs;
+
+  delay(500);
+  tft.fillScreen(TFT_WHITE);
   redraw();
   /*
 
@@ -284,12 +292,6 @@ static void drawTestingscreen()
   drawText(0, 0, "Testing    ", 1);
   font_scale = fs;
   foreground_color = color;
-  fs = font_scale;
-  font_scale = 1;
-  for (i = 2; i < 25; i++) {
-    drawText(i, 0, "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-*/=@:.,", 1);
-  }
-  font_scale = fs;
 }
 
 static void drawStaticIPCFGscreen()
@@ -336,7 +338,222 @@ static void redraw()
   }
 }
 
+static char cmdbuf[256];
+static int cmdbufoff = 0;
+static int last_cmdidx = 0;
 
+struct cmdarg {
+    const char *value;
+    size_t len;
+};
+
+static int handle_cmd(const struct cmdarg *arg, int idx)
+{
+  int err = 0;
+  int i;
+  char buf[52];
+
+  if (atoi(arg[0].value) == 1) {
+    // 1,scale,row,col,fg,bg,erase,text
+    // 1,1,25,36,63488,0,1, off $
+    // 1,1,25,36,2016,0,1, on $
+    if (idx < 8) {
+      return 22;
+    } else {
+      int osc = font_scale;
+      int scale;
+      if (arg[1].len == 1 && arg[1].value[0] == '-') {
+      } else {
+        font_scale = atoi(arg[1].value);
+      }
+      int row = atoi(arg[2].value);
+      int col = atoi(arg[3].value);
+      int ofg = foreground_color;
+      if (arg[4].len == 1 && arg[4].value[0] == '-') {
+
+      } else {
+        foreground_color = atoi(arg[4].value);
+      }
+      int obg = background_color;
+      if (arg[5].len == 1 && arg[5].value[0] == '-') {
+      } else {
+        background_color = atoi(arg[5].value);
+      }
+      int erase = atoi(arg[6].value);
+
+      drawText(row, col, arg[7].value, erase);
+      font_scale = osc;
+      foreground_color = ofg;
+      background_color = obg;
+    }
+  }
+  else if (atoi(arg[0].value) == 2) {
+      int osc = font_scale;
+      int ofg = foreground_color;
+      int obg = background_color;
+      font_scale = 1;
+      background_color = 0;
+      if (atoi(arg[1].value) == 0) {
+        foreground_color = 0xf800;
+        drawText(25, 36, " off ", 1);
+      } else {
+        foreground_color = 0x07e0;
+        drawText(25, 36, " on ", 1);
+      }
+      font_scale = osc;
+      foreground_color = ofg;
+      background_color = obg;
+  } else {
+    Serial.println("# not implemented");
+    err = 22;
+  }
+
+  return err;
+}
+
+static int do_submit(const char *cmd)
+{
+  int idx = 0;
+  const char *tmp;
+  const char *ptr = cmd;
+  struct cmdarg argv[16];
+  int err = 0;
+
+  do {
+    tmp = strchr(ptr, ',');
+    if (idx >= sizeof(argv)/sizeof(argv[0])) {
+      err = -1;
+      break;
+    }
+
+    argv[idx].value = ptr;
+    if (!tmp) {
+      argv[idx].len = &cmd[strlen(cmd)] - ptr;
+    } else {
+      argv[idx].len = tmp - ptr;
+    }
+    idx += 1;
+    ptr = tmp + 1;
+  } while (tmp);
+
+  if (err == 0) {
+    err = handle_cmd(argv, idx);
+  }
+  return err;
+}
+
+static void do_5s_right()
+{
+  switch (curst) {
+    case TESTING:
+      Serial.println("# not implemented");
+      break;
+    case DHCP:
+      Serial.println("# not implemented");
+      break;
+    case STATIC_IP_CFG:
+      if (ip_mode > 1) {
+        ip_mode >>= 8;
+      }
+      else if (peer_mode > 1) {
+        peer_mode >>= 8;
+      }
+      else if (ip_mode == 1) {
+        peer_mode = 16777216;
+        ip_mode = 0;
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+static void do_5s_left()
+{
+  switch (curst) {
+    case TESTING:
+      Serial.println("# not implemented");
+      break;
+    case DHCP:
+      Serial.println("# not implemented");
+      break;
+    case STATIC_IP_CFG:
+      if (ip_mode > 0 && ip_mode < 16777216) {
+        ip_mode <<= 8;
+      }
+      else if (peer_mode > 0 && peer_mode < 16777216) {
+        peer_mode <<= 8;
+      }
+      else if (peer_mode == 16777216) {
+        peer_mode = 0;
+        ip_mode = 1;
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+static void do_5s_up()
+{
+  switch (curst) {
+    case TESTING:
+      Serial.println("# not implemented");
+      break;
+    case DHCP:
+      Serial.println("# not implemented");
+      break;
+    case STATIC_IP_CFG:
+      if (ip_mode) {
+        ip += ip_mode;
+      } else if (peer_mode) {
+        peer_ip += peer_mode;
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+static void do_5s_down()
+{
+  switch (curst) {
+    case TESTING:
+      Serial.println("# not implemented");
+      break;
+    case DHCP:
+      Serial.println("# not implemented");
+      break;
+    case STATIC_IP_CFG:
+      if (ip_mode) {
+        ip -= 1;
+      }
+      else if (peer_mode) {
+        peer_ip -= peer_mode;
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+
+static void do_5s_enter()
+{
+  switch (curst) {
+    case TESTING:
+      Serial.println("# not implemented");
+      break;
+    case DHCP:
+      Serial.println("dhcp_test_start,hwaddr,hostname");
+      break;
+    case STATIC_IP_CFG:
+      Serial.println("static,ip,mask,gw,nameserver");
+      break;
+    default:
+      break;
+  }
+}
 
 void loop() {
   /*
@@ -365,11 +582,8 @@ void loop() {
 
   st = digitalRead(WIO_5S_UP);
   if ((btn_up.last_state != LOW || millis() - btn_up.last_millis > repeat_delay) && st == LOW) {
-    if (ip_mode) {
-      ip += ip_mode;
-    } else if (peer_mode) {
-      peer_ip += peer_mode;
-    }
+
+    do_5s_up();
     redraw();
     btn_up.last_millis = millis();
   }
@@ -377,12 +591,7 @@ void loop() {
 
   st = digitalRead(WIO_5S_DOWN);
   if ((btn_down.last_state != LOW || millis() - btn_down.last_millis > repeat_delay) && st == LOW) {
-    if (ip_mode) {
-      ip -= 1;
-    }
-    else if (peer_mode) {
-      peer_ip -= peer_mode;
-    }
+    do_5s_down();
     redraw();
     btn_down.last_millis = millis();
   }
@@ -390,16 +599,7 @@ void loop() {
 
   st = digitalRead(WIO_5S_LEFT);
   if ((btn_left.last_state != LOW /*|| millis() - btn_left.last_millis > repeat_delay*/) && st == LOW) {
-    if (ip_mode > 0 && ip_mode < 16777216) {
-      ip_mode <<= 8;
-    }
-    else if (peer_mode > 0 && peer_mode < 16777216) {
-      peer_mode <<= 8;
-    }
-    else if (peer_mode == 16777216) {
-      peer_mode = 0;
-      ip_mode = 1;
-    }
+    do_5s_left();
     redraw();
     btn_left.last_millis = millis();
   }
@@ -407,23 +607,15 @@ void loop() {
 
   st = digitalRead(WIO_5S_RIGHT);
   if ((btn_right.last_state != LOW /*|| millis() - btn_right.last_millis > repeat_delay*/) && st == LOW) {
-    if (ip_mode > 1) {
-      ip_mode >>= 8;
-    }
-    else if (peer_mode > 1) {
-      peer_mode >>= 8;
-    }
-    else if (ip_mode == 1) {
-      peer_mode = 16777216;
-      ip_mode = 0;
-    }
+    do_5s_right();
     redraw();
     btn_right.last_millis = millis();
   }
   btn_right.last_state = st;
 
   st = digitalRead(WIO_5S_PRESS);
-  if ((btn_prs.last_state != LOW || millis() - btn_prs.last_millis > repeat_delay) && st == LOW) {
+  if ((btn_prs.last_state != LOW /* || millis() - btn_prs.last_millis > repeat_delay*/) && st == LOW) {
+    do_5s_enter();
     redraw();
     btn_prs.last_millis = millis();
   }
@@ -465,6 +657,34 @@ void loop() {
       break;
   }
 */
+
+  int c = Serial.read();
+  if (c > -1) {
+    // Serial.println(c);
+    cmdbuf[cmdbufoff] = c;
+    if (c == 0xa || c == '$') {
+      // submit
+      cmdbuf[cmdbufoff] = 0;
+      if (!do_submit(cmdbuf)) {
+        Serial.write("# OK\n");
+      } else {
+        Serial.write("# FAIL\n");
+      }
+      cmdbufoff = 0;
+    } else if (cmdbufoff < sizeof(cmdbuf) - 1) {
+      cmdbufoff++;
+    } else {
+      // submit
+      cmdbuf[cmdbufoff] = 0;
+      if (!do_submit(cmdbuf)) {
+        Serial.write("# OK\n");
+      } else {
+        Serial.write("# FAIL\n");
+      }
+      cmdbufoff = 0;
+    }
+  }
+
 
   // blink text, period is 1024 milis
   if (false) {
