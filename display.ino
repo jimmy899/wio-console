@@ -4,6 +4,12 @@
 
 TFT_eSPI tft;
 
+enum {
+ STATIC_IP_CFG,
+ DHCP,
+ TESTING,
+};
+
 #define SYM_SPACE 41
 #define SYM_COLON 42
 #define SYM_AT 43
@@ -15,20 +21,21 @@ TFT_eSPI tft;
 #define SYM_EQ 48
 
 #define SYM_COMMA 49
-#define SYM_DOT 50
-#define SYM_QUESTION 51
+#define SYM_EXCLAM 50
+#define SYM_DOT 51
+#define SYM_QUESTION 52
 
 static unsigned char mfont[][9] = {
   [0] = {0x00, 0x1c, 0x36, 0x36, 0x36, 0x36, 0x36, 0x1c},
   [1] = {0x00, 0x0c, 0x1c, 0x0c, 0x0c, 0x0c, 0x0c, 0x0c},
   [2] = {0x00, 0x3c, 0x06, 0x06, 0x1c, 0x30, 0x30, 0x3e},
-  [3] = {0x00, 0x3c, 0x06, 0x06, 0x1c, 0x06, 0x06, 0x3c}, 
-  [4] = {0x00, 0x06, 0x0e, 0x16, 0x26, 0x3e, 0x06, 0x06}, 
-  [5] = {0x00, 0x3c, 0x20, 0x3c, 0x06, 0x06, 0x06, 0x3c}, 
-  [6] = {0x00, 0x1c, 0x30, 0x3c, 0x36, 0x36, 0x36, 0x1c}, 
-  [7] = {0x00, 0x3e, 0x06, 0x0c, 0x0c, 0x18, 0x18, 0x18}, 
-  [8] = {0x00, 0x1c, 0x36, 0x36, 0x1c, 0x36, 0x36, 0x1c}, 
-  [9] = {0x00, 0x1c, 0x36, 0x36, 0x36, 0x1e, 0x06, 0x1c}, 
+  [3] = {0x00, 0x3c, 0x06, 0x06, 0x1c, 0x06, 0x06, 0x3c},
+  [4] = {0x00, 0x06, 0x0e, 0x16, 0x26, 0x3e, 0x06, 0x06},
+  [5] = {0x00, 0x3c, 0x20, 0x3c, 0x06, 0x06, 0x06, 0x3c},
+  [6] = {0x00, 0x1c, 0x30, 0x3c, 0x36, 0x36, 0x36, 0x1c},
+  [7] = {0x00, 0x3e, 0x06, 0x0c, 0x0c, 0x18, 0x18, 0x18},
+  [8] = {0x00, 0x1c, 0x36, 0x36, 0x1c, 0x36, 0x36, 0x1c},
+  [9] = {0x00, 0x1c, 0x36, 0x36, 0x36, 0x1e, 0x06, 0x1c},
   [10] = {0x00, 0x1c, 0x36, 0x36, 0x36, 0x3e, 0x36, 0x36}, /* A */
   [11] = {0x00, 0x3c, 0x36, 0x3c, 0x36, 0x36, 0x36, 0x3c},
   [12] = {0x00, 0x1e, 0x30, 0x30, 0x30, 0x30, 0x30, 0x1e},
@@ -65,10 +72,11 @@ static unsigned char mfont[][9] = {
   [SYM_AT] =       {0x00, 0x1e, 0x33, 0x3f, 0x37, 0x3f, 0x30, 0x1e},
   [SYM_PLUS] =     {0x00, 0x00, 0x08, 0x08, 0x3e, 0x08, 0x08, 0x00},
   [SYM_MINUS] =    {0x00, 0x00, 0x00, 0x00, 0x1e, 0x00, 0x00, 0x00},
-  [SYM_PROD] =     {0x0},  
+  [SYM_PROD] =     {0x0},
   [SYM_SLASH] =    {0x00, 0x04, 0x04, 0x0c, 0x08, 0x18, 0x10, 0x10},
   [SYM_EQ] =       {0x00, 0x00, 0x00, 0x1e, 0x00, 0x1e, 0x00, 0x00},
   [SYM_COMMA] =    {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x0c, 0x08 }, /* , */
+  [SYM_EXCLAM] =   {0x00, 0x0c, 0x0c, 0x0c, 0x0c, 0x0c, 0x00, 0x0c},
   [SYM_DOT] =      {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x0c}, /* . */
   [SYM_QUESTION] = {0x00, 0x3c, 0x06, 0x0c, 0x18, 0x18, 0x00, 0x18}, /* ? */
 };
@@ -86,6 +94,8 @@ static uint32_t peer_ip = 0xc0a801fe;
 
 static uint32_t ip_mode = 1;
 static uint32_t peer_mode = 0;
+
+static int curst = DHCP;
 
 static void _raw_draw_text(int x, int y, int scale, int erase, int eraseColor, const char *str)
 {
@@ -134,10 +144,16 @@ static void _raw_draw_text(int x, int y, int scale, int erase, int eraseColor, c
         case ',':
           c = SYM_COMMA;
           break;
+        case '!':
+          c = SYM_EXCLAM;
+          break;
+         case '?':
+          c = SYM_QUESTION;
+          break;
         default:
-          c = str[i];  
-          break; 
-      }    
+          c = str[i];
+          break;
+      }
     }
     if (c > SYM_QUESTION || c < 0) {
       /*
@@ -148,7 +164,7 @@ static void _raw_draw_text(int x, int y, int scale, int erase, int eraseColor, c
       c = SYM_QUESTION;
       color = TFT_RED;
     }
-    
+
     for (b = 0; b < 9; b++) {
       for (a = 0; a < (font_width-1); a++) {
         if (mfont[c][b] & (1<<(6-a))) {
@@ -167,23 +183,6 @@ static void drawText(unsigned int row, unsigned col, const char *str, int erase)
 
 }
 
-
-
-static void redraw()
-{
-  /*
-    _raw_draw_text(0, 0, 1, 1, TFT_WHITE, buf);  
-    _raw_draw_text(0, 9, 2, 1, TFT_WHITE, buf);  
-    _raw_draw_text(0, 9+18, 3, 1, TFT_WHITE, buf);  
-    _raw_draw_text(0, 9+18+27, 4, 1, TFT_WHITE, buf);  
-  */
-  char buf[21];
-
-  sprintf(buf, "IP: %3d.%3d.%3d.%3d  ", 0xff & (ip >> 24), 0xff & (ip >> 16), 0xff & (ip >> 8), 0xff & ip);
-  drawText(4, 0, buf, 1);
-  sprintf(buf, "GW: %3d.%3d.%3d.%3d  ", 0xff & (peer_ip >> 24), 0xff & (peer_ip >> 16), 0xff & (peer_ip >> 8), 0xff & peer_ip);
-  drawText(5, 0, buf, 1);
-}
 
 void setup() {
   // put your setup code here, to run once:
@@ -206,18 +205,45 @@ void setup() {
   /*
   _raw_draw_text(0, 0, 1, 0, 0, buf);
   _raw_draw_text(0, 9, 2, 0, 0, buf);
-  _raw_draw_text(0, 9+18, 3, 0, 0, buf);  
-  _raw_draw_text(0, 9+18+27, 4, 0, 0, buf);  
+  _raw_draw_text(0, 9+18, 3, 0, 0, buf);
+  _raw_draw_text(0, 9+18+27, 4, 0, 0, buf);
   */
 
   drawText(1, 0, "ABCDEFGHIJKLM", 1);
   drawText(2, 0, "NOPQRSTUVWXYZ", 1);
-  drawText(3, 0, "+-*/=@:", 1);
+  drawText(3, 0, "+-*/=@:,.?", 1);
+
+  {
+    int i;
+    drawText(4, 0, "booting", 0);
+    for (i = 0; i < 10; i++) {
+      drawText(4, 7 + i, ".", 0);
+      delay(200);
+    }
+    // wait until ok signal
+  }
+
+  tft.fillScreen(TFT_WHITE);
+
+  font_scale = 4;
+  drawText(3, 1+(10-3)/2, "OK!", 0);
+
+  delay(500);
+
+  font_scale = 2;
+  tft.fillScreen(TFT_WHITE);
+
+  redraw();
+  /*
+
   char buf[21];
   sprintf(buf, "IP: %3d.%3d.%3d.%3d", 0xff & (ip >> 24), 0xff & (ip >> 16), 0xff & (ip >> 8), 0xff & ip);
   drawText(4, 0, buf, 0);
   sprintf(buf, "GW: %3d.%3d.%3d.%3d", 0xff & (peer_ip >> 24), 0xff & (peer_ip >> 16), 0xff & (peer_ip >> 8), 0xff & peer_ip);
   drawText(5, 0, buf, 0);
+
+  */
+
 }
 
 struct button {
@@ -234,6 +260,83 @@ static struct button btn_prs;
 static struct button btn_a;
 static struct button btn_b;
 static struct button btn_c;
+
+static void drawDHCPscreen()
+{
+  int color = foreground_color;
+  foreground_color = TFT_BLUE;
+  int fs = font_scale;
+  drawText(0, 0, "DHCP mode  ", 1);
+  font_scale = fs;
+  foreground_color = color;
+
+  fs = font_scale;
+  // drawText Here
+  font_scale = fs;
+}
+
+static void drawTestingscreen()
+{
+  int i;
+  int color = foreground_color;
+  foreground_color = TFT_BLUE;
+  int fs = font_scale;
+  drawText(0, 0, "Testing    ", 1);
+  font_scale = fs;
+  foreground_color = color;
+  fs = font_scale;
+  font_scale = 1;
+  for (i = 2; i < 25; i++) {
+    drawText(i, 0, "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-*/=@:.,", 1);
+  }
+  font_scale = fs;
+}
+
+static void drawStaticIPCFGscreen()
+{
+  char buf[21];
+  int color = foreground_color;
+
+  foreground_color = TFT_BLUE;
+  int fs = font_scale;
+  drawText(0, 0, "Static mode", 1);
+  font_scale = fs;
+  foreground_color = color;
+
+  fs = font_scale;
+  font_scale = 2;
+  sprintf(buf, "IP: %3d.%3d.%3d.%3d  ", 0xff & (ip >> 24), 0xff & (ip >> 16), 0xff & (ip >> 8), 0xff & ip);
+  drawText(4, 0, buf, 1);
+  sprintf(buf, "GW: %3d.%3d.%3d.%3d  ", 0xff & (peer_ip >> 24), 0xff & (peer_ip >> 16), 0xff & (peer_ip >> 8), 0xff & peer_ip);
+  drawText(5, 0, buf, 1);
+  font_scale = fs;
+}
+
+static void redraw()
+{
+  /*
+    _raw_draw_text(0, 0, 1, 1, TFT_WHITE, buf);
+    _raw_draw_text(0, 9, 2, 1, TFT_WHITE, buf);
+    _raw_draw_text(0, 9+18, 3, 1, TFT_WHITE, buf);
+    _raw_draw_text(0, 9+18+27, 4, 1, TFT_WHITE, buf);
+  */
+
+  switch (curst) {
+    case STATIC_IP_CFG:
+      drawStaticIPCFGscreen();
+      break;
+    case DHCP:
+      drawDHCPscreen();
+      break;
+    case TESTING:
+      drawTestingscreen();
+      break;
+    default:
+      break;
+  }
+}
+
+
 
 void loop() {
   /*
@@ -321,7 +424,6 @@ void loop() {
 
   st = digitalRead(WIO_5S_PRESS);
   if ((btn_prs.last_state != LOW || millis() - btn_prs.last_millis > repeat_delay) && st == LOW) {
-
     redraw();
     btn_prs.last_millis = millis();
   }
@@ -329,38 +431,54 @@ void loop() {
 
   st = digitalRead(WIO_KEY_A);
   if ((btn_a.last_state != LOW || millis() - btn_a.last_millis > repeat_delay) && st == LOW) {
-    // 
+    curst = TESTING;
+    redraw();
     btn_a.last_millis = millis();
   }
   btn_a.last_state = st;
 
   st = digitalRead(WIO_KEY_B);
   if ((btn_b.last_state != LOW || millis() - btn_b.last_millis > repeat_delay) && st == LOW) {
-    // 
+    curst = STATIC_IP_CFG;
+    redraw();
     btn_b.last_millis = millis();
   }
   btn_b.last_state = st;
 
   st = digitalRead(WIO_KEY_C);
   if ((btn_c.last_state != LOW || millis() - btn_c.last_millis > repeat_delay) && st == LOW) {
-    // 
+    curst = DHCP;
+    redraw();
     btn_c.last_millis = millis();
   }
   btn_c.last_state = st;
 
+/*
+  switch (curst) {
+    case STATIC_IP_CFG:
+      break;
+    case DHCP:
+      drawDHCPscreen();
+      break;
+    case TESTING:
+      drawTestingScreen();
+      break;
+  }
+*/
+
   // blink text, period is 1024 milis
-  {
+  if (false) {
     int x = (millis() & 1023);
     if (x > 512) {
       x = 1023 - x;
     }
-  
+
     int g = x * ((background_color>>5)&0x3f) / 512 + (511 - x) * 0 / 512;
-  
+
     int bak_fgc = foreground_color;
     foreground_color = (0x1f << 11) | (g << 5) | (g >> 1);
     drawText(6, 0, "Testing", 0);
-  
+
     foreground_color = bak_fgc;
   }
 
