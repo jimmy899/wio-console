@@ -90,10 +90,11 @@ static int font_width = 8;
 static int repeat_delay = 150;
 
 static uint32_t ip = 0xc0a80121;
-static uint32_t peer_ip = 0xc0a801fe;
+static uint32_t gw_ip = 0xc0a801fe;
+static uint8_t netmask = 24;
+static uint32_t dns_ip = 0x08080808;
 
-static uint32_t ip_mode = 1;
-static uint32_t peer_mode = 0;
+static uint32_t ip_mode = 0;
 
 static int curst = DHCP;
 
@@ -179,7 +180,7 @@ static void _raw_draw_text(int x, int y, int scale, int erase, int eraseColor, c
 
 static void drawText(unsigned int row, unsigned col, const char *str, int erase)
 {
-  _raw_draw_text(col * font_width * font_scale, row * line_height * font_scale, font_scale, erase, background_color, str);
+  _raw_draw_text(col * (font_width-1) * font_scale, row * line_height * font_scale, font_scale, erase, background_color, str);
 
 }
 
@@ -241,13 +242,13 @@ void setup() {
 
   delay(500);
   tft.fillScreen(TFT_WHITE);
-  redraw();
+  redraw(true);
   /*
 
   char buf[21];
   sprintf(buf, "IP: %3d.%3d.%3d.%3d", 0xff & (ip >> 24), 0xff & (ip >> 16), 0xff & (ip >> 8), 0xff & ip);
   drawText(4, 0, buf, 0);
-  sprintf(buf, "GW: %3d.%3d.%3d.%3d", 0xff & (peer_ip >> 24), 0xff & (peer_ip >> 16), 0xff & (peer_ip >> 8), 0xff & peer_ip);
+  sprintf(buf, "GW: %3d.%3d.%3d.%3d", 0xff & (gw_ip >> 24), 0xff & (gw_ip >> 16), 0xff & (gw_ip >> 8), 0xff & gw_ip);
   drawText(5, 0, buf, 0);
 
   */
@@ -294,27 +295,79 @@ static void drawTestingscreen()
   foreground_color = color;
 }
 
-static void drawStaticIPCFGscreen()
+static void drawStaticIPCFGscreen(bool invalidate)
 {
   char buf[21];
   int color = foreground_color;
 
   foreground_color = TFT_BLUE;
   int fs = font_scale;
-  drawText(0, 0, "Static mode", 1);
+
+  if (invalidate) {
+    drawText(0, 0, "Static mode", 1);
+  }
   font_scale = fs;
   foreground_color = color;
 
   fs = font_scale;
   font_scale = 2;
-  sprintf(buf, "IP: %3d.%3d.%3d.%3d  ", 0xff & (ip >> 24), 0xff & (ip >> 16), 0xff & (ip >> 8), 0xff & ip);
-  drawText(4, 0, buf, 1);
-  sprintf(buf, "GW: %3d.%3d.%3d.%3d  ", 0xff & (peer_ip >> 24), 0xff & (peer_ip >> 16), 0xff & (peer_ip >> 8), 0xff & peer_ip);
-  drawText(5, 0, buf, 1);
+  if (invalidate) {
+    sprintf(buf, "IP: %3d.%3d.%3d.%3d/%2d ", 0xff & (ip >> 24), 0xff & (ip >> 16), 0xff & (ip >> 8), 0xff & ip, netmask);
+    drawText(4, 0, buf, 1);
+    sprintf(buf, "GW: %3d.%3d.%3d.%3d  ", 0xff & (gw_ip >> 24), 0xff & (gw_ip >> 16), 0xff & (gw_ip >> 8), 0xff & gw_ip);
+    drawText(5, 0, buf, 1);
+    sprintf(buf, "DNS:%3d.%3d.%3d.%3d  ", 0xff & (dns_ip >> 24), 0xff & (dns_ip >> 16), 0xff & (dns_ip >> 8), 0xff & dns_ip);
+    drawText(6, 0, buf, 1);
+  }
+
+  color = foreground_color;
+
+#define T 1024
+
+  int x = (millis() & (T-1));
+  if (x > (T>>1)) {
+    x = (T-1) - x;
+  }
+
+  int g = x * ((background_color>>5)&0x3f) / (T>>1) + (((T>>1)-1) - x) * 0 / (T>>1);
+
+#undef T
+
+  foreground_color = (0x1f << 11) | (g << 5) | (g >> 1);
+
+  switch (ip_mode) {
+    case 0:
+    case 1:
+    case 2:
+    case 3:
+      sprintf(buf, "%3d", 0xff & (ip >> (8*(3-((ip_mode-0)&3)))));
+      drawText(4, 4+((ip_mode-0) & 3)*4, buf, 0);
+      break;
+    case 4:
+    case 5:
+    case 6:
+    case 7:
+      sprintf(buf, "%3d", 0xff & (gw_ip >> (8*(3-((ip_mode-4)&3)))));
+      drawText(5, 4+((ip_mode-4) & 3)*4, buf, 0);
+      break;
+    case 8:
+    case 9:
+    case 10:
+    case 11:
+      sprintf(buf, "%3d", 0xff & (dns_ip >> (8*(3-((ip_mode-8)&3)))));
+      drawText(6, 4+((ip_mode-8) & 3)*4, buf, 0);
+      break;
+    case 12:
+      sprintf(buf, "%2d", netmask);
+      drawText(4, 20, buf, 0);
+      break;
+  }
+  foreground_color = color;
+
   font_scale = fs;
 }
 
-static void redraw()
+static void redraw(bool invalidate)
 {
   /*
     _raw_draw_text(0, 0, 1, 1, TFT_WHITE, buf);
@@ -325,7 +378,7 @@ static void redraw()
 
   switch (curst) {
     case STATIC_IP_CFG:
-      drawStaticIPCFGscreen();
+      drawStaticIPCFGscreen(invalidate);
       break;
     case DHCP:
       drawDHCPscreen();
@@ -403,6 +456,13 @@ static int handle_cmd(const struct cmdarg *arg, int idx)
       font_scale = osc;
       foreground_color = ofg;
       background_color = obg;
+  } else if (atoi(arg[0].value) == 3) {
+      // clear
+
+  } else if (atoi(arg[0].value) == 4) {
+      // dialog
+      // 4,dialogid,msg,opt1,yes,opt2,no
+      // 4,100,1,ok,2,no,are you sure?
   } else {
     Serial.println("# not implemented");
     err = 22;
@@ -452,6 +512,9 @@ static void do_5s_right()
       Serial.println("# not implemented");
       break;
     case STATIC_IP_CFG:
+
+      // 111111111111
+      /*
       if (ip_mode > 1) {
         ip_mode >>= 8;
       }
@@ -462,6 +525,14 @@ static void do_5s_right()
         peer_mode = 16777216;
         ip_mode = 0;
       }
+      */
+
+      Serial.println(ip_mode);
+      if (ip_mode < 12) {
+        ip_mode += 1;
+      }
+      Serial.println(ip_mode);
+
       break;
     default:
       break;
@@ -478,16 +549,11 @@ static void do_5s_left()
       Serial.println("# not implemented");
       break;
     case STATIC_IP_CFG:
-      if (ip_mode > 0 && ip_mode < 16777216) {
-        ip_mode <<= 8;
+      Serial.println(ip_mode);
+      if (ip_mode > 0) {
+        ip_mode -= 1;
       }
-      else if (peer_mode > 0 && peer_mode < 16777216) {
-        peer_mode <<= 8;
-      }
-      else if (peer_mode == 16777216) {
-        peer_mode = 0;
-        ip_mode = 1;
-      }
+      Serial.println(ip_mode);
       break;
     default:
       break;
@@ -504,10 +570,15 @@ static void do_5s_up()
       Serial.println("# not implemented");
       break;
     case STATIC_IP_CFG:
-      if (ip_mode) {
-        ip += ip_mode;
-      } else if (peer_mode) {
-        peer_ip += peer_mode;
+      if (ip_mode == 12) {
+        netmask += 1;
+        netmask %= 32;
+      } else if (ip_mode < 12 && ip_mode >= 8) {
+        dns_ip += (1<<(8*(3-(ip_mode-8))));
+      } else if (ip_mode < 8 && ip_mode >= 4) {
+        gw_ip += (1<<(8*(3-(ip_mode-4))));
+      } else if (ip_mode < 4 && ip_mode >= 0) {
+        ip += (1<<(8*(3-(ip_mode-0))));
       }
       break;
     default:
@@ -525,11 +596,15 @@ static void do_5s_down()
       Serial.println("# not implemented");
       break;
     case STATIC_IP_CFG:
-      if (ip_mode) {
-        ip -= 1;
-      }
-      else if (peer_mode) {
-        peer_ip -= peer_mode;
+      if (ip_mode == 13) {
+        netmask += 31;
+        netmask %= 32;
+      } else if (ip_mode < 12 && ip_mode >= 8) {
+        dns_ip -= (1<<(8*(3-(ip_mode-8))));
+      } else if (ip_mode < 8 && ip_mode >= 4) {
+        gw_ip -=  (1<<(8*(3-(ip_mode-4))));
+      } else if (ip_mode < 4 && ip_mode >= 0) {
+        ip -=  (1<<(8*(3-(ip_mode-0))));
       }
       break;
     default:
@@ -540,15 +615,31 @@ static void do_5s_down()
 
 static void do_5s_enter()
 {
+  char buf[64];
   switch (curst) {
     case TESTING:
       Serial.println("# not implemented");
       break;
     case DHCP:
-      Serial.println("dhcp_test_start,hwaddr,hostname");
+      Serial.println("dhcp_test_start,00:0C:11:11:22:33,WIO");
       break;
     case STATIC_IP_CFG:
-      Serial.println("static,ip,mask,gw,nameserver");
+      snprintf(buf, sizeof(buf), "static,%d.%d.%d.%d,%d,%d.%d.%d.%d,%d.%d.%d.%d",
+        0xff & (ip>>24),
+        0xff & (ip>>16),
+        0xff & (ip>>8),
+        0xff & (ip>>0),
+        netmask,
+        0xff & (gw_ip>>24),
+        0xff & (gw_ip>>16),
+        0xff & (gw_ip>>8),
+        0xff & (gw_ip>>0),
+        0xff & (dns_ip>>24),
+        0xff & (dns_ip>>16),
+        0xff & (dns_ip>>8),
+        0xff & (dns_ip>>0)
+      );
+      Serial.println(buf);
       break;
     default:
       break;
@@ -584,7 +675,7 @@ void loop() {
   if ((btn_up.last_state != LOW || millis() - btn_up.last_millis > repeat_delay) && st == LOW) {
 
     do_5s_up();
-    redraw();
+    redraw(true);
     btn_up.last_millis = millis();
   }
   btn_up.last_state = st;
@@ -592,7 +683,7 @@ void loop() {
   st = digitalRead(WIO_5S_DOWN);
   if ((btn_down.last_state != LOW || millis() - btn_down.last_millis > repeat_delay) && st == LOW) {
     do_5s_down();
-    redraw();
+    redraw(true);
     btn_down.last_millis = millis();
   }
   btn_down.last_state = st;
@@ -600,7 +691,7 @@ void loop() {
   st = digitalRead(WIO_5S_LEFT);
   if ((btn_left.last_state != LOW /*|| millis() - btn_left.last_millis > repeat_delay*/) && st == LOW) {
     do_5s_left();
-    redraw();
+    redraw(true);
     btn_left.last_millis = millis();
   }
   btn_left.last_state = st;
@@ -608,7 +699,7 @@ void loop() {
   st = digitalRead(WIO_5S_RIGHT);
   if ((btn_right.last_state != LOW /*|| millis() - btn_right.last_millis > repeat_delay*/) && st == LOW) {
     do_5s_right();
-    redraw();
+    redraw(true);
     btn_right.last_millis = millis();
   }
   btn_right.last_state = st;
@@ -616,7 +707,7 @@ void loop() {
   st = digitalRead(WIO_5S_PRESS);
   if ((btn_prs.last_state != LOW /* || millis() - btn_prs.last_millis > repeat_delay*/) && st == LOW) {
     do_5s_enter();
-    redraw();
+    redraw(true);
     btn_prs.last_millis = millis();
   }
   btn_prs.last_state = st;
@@ -624,7 +715,7 @@ void loop() {
   st = digitalRead(WIO_KEY_A);
   if ((btn_a.last_state != LOW || millis() - btn_a.last_millis > repeat_delay) && st == LOW) {
     curst = TESTING;
-    redraw();
+    redraw(true);
     btn_a.last_millis = millis();
   }
   btn_a.last_state = st;
@@ -632,7 +723,7 @@ void loop() {
   st = digitalRead(WIO_KEY_B);
   if ((btn_b.last_state != LOW || millis() - btn_b.last_millis > repeat_delay) && st == LOW) {
     curst = STATIC_IP_CFG;
-    redraw();
+    redraw(true);
     btn_b.last_millis = millis();
   }
   btn_b.last_state = st;
@@ -640,23 +731,20 @@ void loop() {
   st = digitalRead(WIO_KEY_C);
   if ((btn_c.last_state != LOW || millis() - btn_c.last_millis > repeat_delay) && st == LOW) {
     curst = DHCP;
-    redraw();
+    redraw(true);
     btn_c.last_millis = millis();
   }
   btn_c.last_state = st;
 
-/*
   switch (curst) {
     case STATIC_IP_CFG:
+      redraw(false);
       break;
     case DHCP:
-      drawDHCPscreen();
       break;
     case TESTING:
-      drawTestingScreen();
       break;
   }
-*/
 
   int c = Serial.read();
   if (c > -1) {
