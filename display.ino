@@ -93,8 +93,12 @@ static uint32_t ip = 0xc0a80121;
 static uint32_t gw_ip = 0xc0a801fe;
 static uint8_t netmask = 24;
 static uint32_t dns_ip = 0x08080808;
+static unsigned char ethaddr[6] = {0x00, 0x0c, 0x00, 0x11, 0x22, 0x33};
+static char hostname[16] = "WIOTERM";
 
 static uint32_t ip_mode = 0;
+static uint32_t locked = 0;
+static uint32_t carrier = 0;
 
 static int curst = DHCP;
 
@@ -275,6 +279,7 @@ static void drawDHCPscreen()
   int color = foreground_color;
   foreground_color = TFT_BLUE;
   int fs = font_scale;
+  tft.fillScreen(TFT_WHITE);
   drawText(0, 0, "DHCP mode  ", 1);
   font_scale = fs;
   foreground_color = color;
@@ -288,6 +293,7 @@ static void drawTestingscreen()
 {
   int i;
   int color = foreground_color;
+  tft.fillScreen(TFT_WHITE);
   foreground_color = TFT_BLUE;
   int fs = font_scale;
   drawText(0, 0, "Testing    ", 1);
@@ -391,6 +397,37 @@ static void redraw(bool invalidate)
   }
 }
 
+static void drawStatusBar(bool invalidate)
+{
+    int osc = font_scale;
+    int ofg = foreground_color;
+    int obg = background_color;
+
+    font_scale = 1;
+    background_color = 0;
+    if (carrier) {
+      foreground_color = 0x07e0;
+      drawText(25, 36, " on ", 1);
+    } else {
+      foreground_color = 0xf800;
+      drawText(25, 36, " off ", 1);
+    }
+
+    if (locked) {
+      background_color = 0xf800;
+      foreground_color = 0x0000;
+      drawText(25, 30, "LOCKED", 1);
+    } else {
+      background_color = obg;
+      foreground_color = ofg;
+      drawText(25, 30, "      ", 1);
+    }
+
+    font_scale = osc;
+    foreground_color = ofg;
+    background_color = obg;
+}
+
 static char cmdbuf[256];
 static int cmdbufoff = 0;
 static int last_cmdidx = 0;
@@ -441,29 +478,23 @@ static int handle_cmd(const struct cmdarg *arg, int idx)
     }
   }
   else if (atoi(arg[0].value) == 2) {
-      int osc = font_scale;
-      int ofg = foreground_color;
-      int obg = background_color;
-      font_scale = 1;
-      background_color = 0;
-      if (atoi(arg[1].value) == 0) {
-        foreground_color = 0xf800;
-        drawText(25, 36, " off ", 1);
-      } else {
-        foreground_color = 0x07e0;
-        drawText(25, 36, " on ", 1);
-      }
-      font_scale = osc;
-      foreground_color = ofg;
-      background_color = obg;
+    carrier = atoi(arg[1].value);
+    drawStatusBar(true);
   } else if (atoi(arg[0].value) == 3) {
       // clear
-
+      tft.fillScreen(background_color);
   } else if (atoi(arg[0].value) == 4) {
       // dialog
       // 4,dialogid,msg,opt1,yes,opt2,no
       // 4,100,1,ok,2,no,are you sure?
-  } else {
+  } else if (atoi(arg[0].value) == 5) {
+      if (idx < 1) {
+        return 22;
+      }
+      locked = atoi(arg[1].value);
+      drawStatusBar(true);
+  }
+  else {
     Serial.println("# not implemented");
     err = 22;
   }
@@ -512,27 +543,9 @@ static void do_5s_right()
       Serial.println("# not implemented");
       break;
     case STATIC_IP_CFG:
-
-      // 111111111111
-      /*
-      if (ip_mode > 1) {
-        ip_mode >>= 8;
-      }
-      else if (peer_mode > 1) {
-        peer_mode >>= 8;
-      }
-      else if (ip_mode == 1) {
-        peer_mode = 16777216;
-        ip_mode = 0;
-      }
-      */
-
-      Serial.println(ip_mode);
       if (ip_mode < 12) {
         ip_mode += 1;
       }
-      Serial.println(ip_mode);
-
       break;
     default:
       break;
@@ -549,11 +562,9 @@ static void do_5s_left()
       Serial.println("# not implemented");
       break;
     case STATIC_IP_CFG:
-      Serial.println(ip_mode);
       if (ip_mode > 0) {
         ip_mode -= 1;
       }
-      Serial.println(ip_mode);
       break;
     default:
       break;
@@ -616,12 +627,19 @@ static void do_5s_down()
 static void do_5s_enter()
 {
   char buf[64];
+
+  if (locked) {
+    Serial.println("# LOCKED");
+    return;
+  }
+
   switch (curst) {
     case TESTING:
       Serial.println("# not implemented");
       break;
     case DHCP:
-      Serial.println("dhcp_test_start,00:0C:11:11:22:33,WIO");
+      snprintf(buf, sizeof(buf), "dhcp_test_start,%02X:%02X:%02X:%02X:%02X:%02X,%s", ethaddr[0], ethaddr[1], ethaddr[2], ethaddr[3], ethaddr[4], ethaddr[5], hostname);
+      Serial.println(buf);
       break;
     case STATIC_IP_CFG:
       snprintf(buf, sizeof(buf), "static,%d.%d.%d.%d,%d,%d.%d.%d.%d,%d.%d.%d.%d",
@@ -745,6 +763,7 @@ void loop() {
     case TESTING:
       break;
   }
+  drawStatusBar(false);
 
   int c = Serial.read();
   if (c > -1) {
